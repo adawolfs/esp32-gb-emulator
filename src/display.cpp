@@ -41,7 +41,7 @@ class DisplayDevice : public lgfx::LGFX_Device {
       cfg.offset_y = 0;
       cfg.offset_rotation = 0;
       cfg.readable = false;
-      cfg.invert = false;
+      cfg.invert = true;
       cfg.rgb_order = true;
       cfg.dlen_16bit = false;
       cfg.bus_shared = false;

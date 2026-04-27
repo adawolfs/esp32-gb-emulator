@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "board_config.h"
 #include "cpu.h"
 #include "interrupt.h"
 #include "lcd.h"
@@ -16,13 +17,17 @@
 #include "sdl.h"
 #include "timer.h"
 
+#if GB_ENABLE_AUDIO
+#include "apu.h"
+#endif
+
 static unsigned char *mem;
 static unsigned char *cart_ram;
 static unsigned int cart_ram_bank_count;
 static const unsigned char *switchable_rom;
 static unsigned int current_rom_bank = 1;
 static int DMA_pending = 0;
-static int joypad_select_buttons, joypad_select_directions;
+static unsigned char joypad_select = 0x30;
 static uint32_t bank_switches = 0;
 
 uint32_t mem_get_bank_switches() { return bank_switches; }
@@ -41,6 +46,13 @@ void mem_bank_switch(unsigned int n) {
 
 /* LCD's access to VRAM */
 const unsigned char *mem_get_raw() { return mem; }
+
+unsigned char mem_get_joypad_register(void) {
+  unsigned char lower = 0x0F;
+  if (!(joypad_select & 0x10)) lower &= 0x0F ^ (sdl_get_directions() & 0x0F);
+  if (!(joypad_select & 0x20)) lower &= 0x0F ^ (sdl_get_buttons() & 0x0F);
+  return 0xC0 | joypad_select | lower;
+}
 
 static bool has_cart_ram() { return cart_ram && cart_ram_bank_count > 0; }
 
@@ -63,7 +75,6 @@ static void cart_ram_write(unsigned short d, unsigned char i) {
 
 unsigned char mem_get_byte(unsigned short i) {
   unsigned long elapsed;
-  unsigned char mask = 0;
 
   if (DMA_pending && i < 0xFF80) {
     elapsed = cpu_get_cycles() - DMA_pending;
@@ -78,14 +89,13 @@ unsigned char mem_get_byte(unsigned short i) {
   if (i < 0x8000) return switchable_rom[i - 0x4000];
   if (i >= 0xA000 && i < 0xC000) return cart_ram_read(i);
   if (i < 0xFF00) return mem[i];
+#if GB_ENABLE_AUDIO
+  if (i >= 0xFF10 && i <= 0xFF3F) return apu_read_register(i);
+#endif
 
   switch (i) {
     case 0xFF00: /* Joypad */
-      if (!joypad_select_buttons) mask = sdl_get_buttons();
-      if (!joypad_select_directions) mask = sdl_get_directions();
-      return 0xC0 | (0xF ^ mask) |
-             (joypad_select_buttons | joypad_select_directions);
-      break;
+      return mem_get_joypad_register();
     case 0xFF04:
       return timer_get_div();
       break;
@@ -163,10 +173,17 @@ void mem_write_byte(unsigned short d, unsigned char i) {
     return;
   }
 
+#if GB_ENABLE_AUDIO
+  if (d >= 0xFF10 && d <= 0xFF3F) {
+    apu_write_register(d, i);
+    mem[d] = i;
+    return;
+  }
+#endif
+
   switch (d) {
     case 0xFF00: /* Joypad */
-      joypad_select_buttons = i & 0x20;
-      joypad_select_directions = i & 0x10;
+      joypad_select = i & 0x30;
       break;
     case 0xFF01: /* Link port data */
                  //			fprintf(stderr, "%c", i);
@@ -246,8 +263,12 @@ void gameboy_mem_init(void) {
                  : nullptr;
   switchable_rom = &bytes[0x4000];
   current_rom_bank = 1;
+  joypad_select = 0x30;
   bank_switches = 0;
   MBC_reset();
+#if GB_ENABLE_AUDIO
+  apu_init();
+#endif
 
   memcpy(&mem[0x0000], &bytes[0x0000], 0x4000);
 

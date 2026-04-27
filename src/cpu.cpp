@@ -688,11 +688,14 @@ unsigned int cpu_cycle(void) {
   unsigned int i;
 
   if (halted) {
-    c.cycles += 1;
-    return c.cycles;
-  }
-
-  if (interrupt_flush()) {
+    if (interrupt_flush()) {
+      halted = 0;
+    }
+    if (halted) {
+      c.cycles += 1;
+      return c.cycles;
+    }
+  } else if (interrupt_flush()) {
     halted = 0;
   }
 
