@@ -7,12 +7,28 @@ enum { NO_FILTER_WRITE, FILTER_WRITE };
 
 static unsigned int bank_upper_bits;
 static unsigned int ram_select;
+static unsigned int ram_bank;
+static unsigned int mbc5_bank = 1;
+static bool ram_enabled;
+
+void MBC_reset(void) {
+  bank_upper_bits = 0;
+  ram_select = 0;
+  ram_bank = 0;
+  mbc5_bank = 1;
+  ram_enabled = false;
+}
+
+unsigned int MBC_get_ram_bank(void) { return ram_bank; }
+
+bool MBC_is_ram_enabled(void) { return ram_enabled; }
 
 /* Unfinished, no clock etc */
 unsigned int MBC3_write_byte(unsigned short d, unsigned char i) {
   int bank;
 
   if (d < 0x2000) {
+    ram_enabled = (i & 0x0F) == 0x0A;
     return FILTER_WRITE;
   }
 
@@ -26,6 +42,11 @@ unsigned int MBC3_write_byte(unsigned short d, unsigned char i) {
     return FILTER_WRITE;
   }
 
+  if (d < 0x6000) {
+    ram_bank = i & 0x03;
+    return FILTER_WRITE;
+  }
+
   if (d < 0x8000) return FILTER_WRITE;
 
   return NO_FILTER_WRITE;
@@ -34,8 +55,8 @@ unsigned int MBC1_write_byte(unsigned short d, unsigned char i) {
   int bank;
 
   if (d < 0x2000) {
+    ram_enabled = (i & 0x0F) == 0x0A;
     return FILTER_WRITE;
-    /* TODO: Enable/disable SRAM */
   }
 
   /* Switch rom bank at 4000-7fff */
@@ -63,6 +84,7 @@ unsigned int MBC1_write_byte(unsigned short d, unsigned char i) {
   /* Bit 5 and 6 of the bank selection */
   if (d >= 0x4000 && d < 0x6000) {
     bank_upper_bits = (i & 0x3) << 5;
+    if (ram_select) ram_bank = i & 0x03;
     return FILTER_WRITE;
   }
 
@@ -73,10 +95,9 @@ unsigned int MBC1_write_byte(unsigned short d, unsigned char i) {
   return NO_FILTER_WRITE;
 }
 
-static unsigned int mbc5_bank = 1;
-
 unsigned int MBC5_write_byte(unsigned short d, unsigned char i) {
   if (d < 0x2000) {
+    ram_enabled = (i & 0x0F) == 0x0A;
     return FILTER_WRITE;
   }
 
@@ -93,6 +114,7 @@ unsigned int MBC5_write_byte(unsigned short d, unsigned char i) {
   }
 
   if (d < 0x6000) {
+    ram_bank = i & 0x0F;
     return FILTER_WRITE;
   }
 

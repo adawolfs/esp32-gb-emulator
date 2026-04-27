@@ -6,6 +6,10 @@
 
 const unsigned char *bytes;
 unsigned int mapper;
+static unsigned int rom_bank_count;
+static unsigned int ram_bank_count;
+static unsigned char cartridge_type;
+static char title[17];
 
 extern "C" {
 
@@ -60,17 +64,17 @@ static unsigned char header[] = {
     0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E};
 
 int rom_init(const unsigned char *rombytes) {
-  char buf[17];
   int type, bank_index, ram, region, version, i, pass;
   unsigned char checksum = 0;
 
   if (memcmp(&rombytes[0x104], header, sizeof(header)) != 0) return 0;
 
-  memcpy(buf, &rombytes[0x134], 16);
-  buf[16] = '\0';
-  printf("Rom title: %s\n", buf);
+  memcpy(title, &rombytes[0x134], 16);
+  title[16] = '\0';
+  printf("Rom title: %s\n", title);
 
   type = rombytes[0x147];
+  cartridge_type = type;
 
   // printf("Cartridge type: %s (%02X)\n", carts[type], type);
 
@@ -82,11 +86,44 @@ int rom_init(const unsigned char *rombytes) {
     bank_index = 11;
 
   printf("Rom size: %s\n", banks[bank_index]);
+  switch (rombytes[0x148]) {
+    case 0x00: rom_bank_count = 2; break;
+    case 0x01: rom_bank_count = 4; break;
+    case 0x02: rom_bank_count = 8; break;
+    case 0x03: rom_bank_count = 16; break;
+    case 0x04: rom_bank_count = 32; break;
+    case 0x05: rom_bank_count = 64; break;
+    case 0x06: rom_bank_count = 128; break;
+    case 0x07: rom_bank_count = 256; break;
+    case 0x08: rom_bank_count = 512; break;
+    case 0x52: rom_bank_count = 72; break;
+    case 0x53: rom_bank_count = 80; break;
+    case 0x54: rom_bank_count = 96; break;
+    default: rom_bank_count = 2; break;
+  }
 
   ram = rombytes[0x149];
   if (ram > 3) ram = 4;
 
   printf("RAM size: %s\n", rams[ram]);
+  switch (rombytes[0x149]) {
+    case 0x01:
+    case 0x02:
+      ram_bank_count = 1;
+      break;
+    case 0x03:
+      ram_bank_count = 4;
+      break;
+    case 0x04:
+      ram_bank_count = 16;
+      break;
+    case 0x05:
+      ram_bank_count = 8;
+      break;
+    default:
+      ram_bank_count = 0;
+      break;
+  }
 
   region = rombytes[0x14A];
   if (region > 2) region = 2;
@@ -149,6 +186,10 @@ int rom_init(const unsigned char *rombytes) {
 }
 
 unsigned int rom_get_mapper(void) { return mapper; }
+unsigned int rom_get_bank_count(void) { return rom_bank_count; }
+unsigned int rom_get_ram_bank_count(void) { return ram_bank_count; }
+unsigned char rom_get_type(void) { return cartridge_type; }
+const char *rom_get_title(void) { return title; }
 
 int rom_load(const char *filename) {
   /*

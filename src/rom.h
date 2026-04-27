@@ -9,6 +9,10 @@ int rom_load(const char *);
 int rom_init(const unsigned char *);
 const unsigned char *rom_getbytes(void);
 unsigned int rom_get_mapper(void);
+unsigned int rom_get_bank_count(void);
+unsigned int rom_get_ram_bank_count(void);
+unsigned char rom_get_type(void);
+const char *rom_get_title(void);
 
 enum {
   NROM,

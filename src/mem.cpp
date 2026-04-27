@@ -17,6 +17,10 @@
 #include "timer.h"
 
 static unsigned char *mem;
+static unsigned char *cart_ram;
+static unsigned int cart_ram_bank_count;
+static const unsigned char *switchable_rom;
+static unsigned int current_rom_bank = 1;
 static int DMA_pending = 0;
 static int joypad_select_buttons, joypad_select_directions;
 static uint32_t bank_switches = 0;
@@ -25,13 +29,37 @@ uint32_t mem_get_bank_switches() { return bank_switches; }
 
 void mem_bank_switch(unsigned int n) {
   const unsigned char *b = rom_getbytes();
-  bank_switches++;
+  const unsigned int bank_count = rom_get_bank_count();
 
-  memcpy(&mem[0x4000], &b[n * 0x4000], 0x4000);
+  if (bank_count) n %= bank_count;
+  if (n == current_rom_bank) return;
+
+  switchable_rom = &b[n * 0x4000];
+  current_rom_bank = n;
+  bank_switches++;
 }
 
 /* LCD's access to VRAM */
 const unsigned char *mem_get_raw() { return mem; }
+
+static bool has_cart_ram() { return cart_ram && cart_ram_bank_count > 0; }
+
+static unsigned int active_cart_ram_bank() {
+  if (!cart_ram_bank_count) return 0;
+  return MBC_get_ram_bank() % cart_ram_bank_count;
+}
+
+static unsigned char cart_ram_read(unsigned short i) {
+  if (!has_cart_ram()) return 0xFF;
+  if (rom_get_mapper() != NROM && !MBC_is_ram_enabled()) return 0xFF;
+  return cart_ram[active_cart_ram_bank() * 0x2000 + (i - 0xA000)];
+}
+
+static void cart_ram_write(unsigned short d, unsigned char i) {
+  if (!has_cart_ram()) return;
+  if (rom_get_mapper() != NROM && !MBC_is_ram_enabled()) return;
+  cart_ram[active_cart_ram_bank() * 0x2000 + (d - 0xA000)] = i;
+}
 
 unsigned char mem_get_byte(unsigned short i) {
   unsigned long elapsed;
@@ -46,6 +74,9 @@ unsigned char mem_get_byte(unsigned short i) {
     }
   }
 
+  if (i < 0x4000) return mem[i];
+  if (i < 0x8000) return switchable_rom[i - 0x4000];
+  if (i >= 0xA000 && i < 0xC000) return cart_ram_read(i);
   if (i < 0xFF00) return mem[i];
 
   switch (i) {
@@ -98,7 +129,12 @@ unsigned short mem_get_word(unsigned short i) {
       return mem[0xFE00 + elapsed];
     }
   }
-  return mem[i] | (mem[i + 1] << 8);
+  if (i < 0x3FFF) return mem[i] | (mem[i + 1] << 8);
+  if (i >= 0x4000 && i < 0x7FFF) {
+    const unsigned int offset = i - 0x4000;
+    return switchable_rom[offset] | (switchable_rom[offset + 1] << 8);
+  }
+  return mem_get_byte(i) | (mem_get_byte(i + 1) << 8);
 }
 
 void mem_write_byte(unsigned short d, unsigned char i) {
@@ -121,6 +157,11 @@ void mem_write_byte(unsigned short d, unsigned char i) {
   }
 
   if (filtered) return;
+
+  if (d >= 0xA000 && d < 0xC000) {
+    cart_ram_write(d, i);
+    return;
+  }
 
   switch (d) {
     case 0xFF00: /* Joypad */
@@ -161,8 +202,9 @@ void mem_write_byte(unsigned short d, unsigned char i) {
       lcd_set_ly_compare(i);
       break;
     case 0xFF46: /* OAM DMA */
-      /* Copy bytes from i*0x100 to OAM */
-      memcpy(&mem[0xFE00], &mem[i * 0x100], 0xA0);
+      for (int offset = 0; offset < 0xA0; ++offset) {
+        mem[0xFE00 + offset] = mem_get_byte(((unsigned short)i << 8) + offset);
+      }
       DMA_pending = cpu_get_cycles();
       break;
     case 0xFF47:
@@ -198,9 +240,16 @@ void gameboy_mem_init(void) {
   const unsigned char *bytes = rom_getbytes();
 
   mem = (unsigned char *)calloc(1, 0x10000);
+  cart_ram_bank_count = rom_get_ram_bank_count();
+  cart_ram = cart_ram_bank_count
+                 ? (unsigned char *)calloc(cart_ram_bank_count, 0x2000)
+                 : nullptr;
+  switchable_rom = &bytes[0x4000];
+  current_rom_bank = 1;
+  bank_switches = 0;
+  MBC_reset();
 
   memcpy(&mem[0x0000], &bytes[0x0000], 0x4000);
-  memcpy(&mem[0x4000], &bytes[0x4000], 0x4000);
 
   mem[0xFF10] = 0x80;
   mem[0xFF11] = 0xBF;
