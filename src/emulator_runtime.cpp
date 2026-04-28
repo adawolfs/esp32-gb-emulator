@@ -89,7 +89,9 @@ void emulator_run_frame(void) {
   }
 
   sdl_update();
-  service_web_portal(millis(), sdl_get_framebuffer());
+  const uint32_t now_ms = millis();
+  service_web_portal(now_ms, sdl_get_framebuffer());
+  mem_persist(now_ms);
 
   const uint32_t elapsed = micros() - frame_start_us;
   if (elapsed < board::FRAME_US) {

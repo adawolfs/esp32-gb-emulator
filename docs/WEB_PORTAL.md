@@ -3,6 +3,7 @@
 ## Table of Contents
 
 - [Network Model](#network-model)
+- [Static UI Build](#static-ui-build)
 - [HTTP Endpoints](#http-endpoints)
 - [WebSocket Protocol](#websocket-protocol)
 - [Input Pipeline](#input-pipeline)
@@ -21,6 +22,33 @@ Defaults:
 - WebSocket port: `81`
 
 The browser connects to the AP, loads `/`, then fetches `/api/state` and opens the WebSocket.
+
+## Static UI Build
+
+The browser UI is no longer embedded in firmware source.
+
+Current flow:
+
+- source app lives in `webui/`
+- Vite builds a lightweight installable PWA bundle into `data/`
+- PlatformIO packs `data/` into a SPIFFS image
+- ESP32 serves the site from SPIFFS at runtime
+
+Relevant commands:
+
+- `npm --prefix webui install`
+- `npm --prefix webui run build`
+- `~/.platformio/penv/bin/pio run --target buildfs`
+- `~/.platformio/penv/bin/pio run --target uploadfs`
+
+Helper scripts:
+
+- `scripts/build_web_ui.sh`
+- `scripts/upload_web_ui.sh`
+- `scripts/deploy_all.sh`
+
+The visual shell is implemented with HTML/CSS rather than serving the large
+reference PNG/SVG artwork.
 
 ## HTTP Endpoints
 
@@ -74,6 +102,7 @@ Important behavior:
 - web input timeout protects against stuck remote buttons
 - minimum press duration reduces missed taps on fast network round-trips
 - timeout and minimum press are configured centrally in `board_config.h`
+- SRAM save persistence happens in firmware and does not depend on the portal being open
 
 ## UI Notes
 

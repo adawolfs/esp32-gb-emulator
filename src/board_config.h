@@ -33,6 +33,7 @@ static constexpr uint32_t FRAME_US = 1000000u / TARGET_FPS;
 static constexpr uint32_t WEB_PORTAL_IDLE_SERVICE_INTERVAL_MS = 50;
 static constexpr uint32_t WEB_INPUT_TIMEOUT_MS = 1500;
 static constexpr uint32_t WEB_MIN_PRESS_MS = 180;
+static constexpr uint32_t SAVE_FLUSH_DEBOUNCE_MS = 1000;
 
 static constexpr const char *WEB_AP_SSID = "GameBoy-Link";
 static constexpr const char *WEB_AP_PASSWORD = "gameboy123";

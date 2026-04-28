@@ -49,6 +49,7 @@ Behavior:
 - system RAM is allocated as a 64 KiB flat map
 - cartridge RAM is allocated according to the ROM header
 - previously allocated buffers are released before reinitialization
+- battery-backed cartridge RAM is restored from `/sram.bin` in SPIFFS when available, and is flushed back the moment the game disables cart RAM (the canonical save-complete signal), with a 1 s debounce as a backstop
 - failure returns are propagated to `emulator_init()`
 
 This keeps the startup path explicit and removes silent allocation failure behavior.
@@ -86,4 +87,4 @@ Current failure modes that still remain largely diagnostic:
 
 - touch I2C read anomalies
 - browser disconnects during streaming
-- emulator save data loss after reset
+- save loss if power is removed before the SRAM debounce flush completes

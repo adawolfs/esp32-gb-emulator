@@ -9,6 +9,8 @@ unsigned int mapper;
 static unsigned int rom_bank_count;
 static unsigned int ram_bank_count;
 static unsigned char cartridge_type;
+static unsigned char cartridge_version;
+static unsigned char header_checksum;
 static char title[17];
 
 extern "C" {
@@ -130,11 +132,13 @@ int rom_init(const unsigned char *rombytes) {
   printf("Region: %s\n", regions[region]);
 
   version = rombytes[0x14C];
+  cartridge_version = version;
   printf("Version: %02X\n", version);
 
   for (i = 0x134; i <= 0x14C; i++) checksum = checksum - rombytes[i] - 1;
 
   pass = rombytes[0x14D] == checksum;
+  header_checksum = rombytes[0x14D];
 
   printf("Checksum: %s (%02X)\n", pass ? "OK" : "FAIL", checksum);
   if (!pass) return 0;
@@ -190,6 +194,28 @@ unsigned int rom_get_bank_count(void) { return rom_bank_count; }
 unsigned int rom_get_ram_bank_count(void) { return ram_bank_count; }
 unsigned char rom_get_type(void) { return cartridge_type; }
 const char *rom_get_title(void) { return title; }
+unsigned char rom_get_version(void) { return cartridge_version; }
+unsigned char rom_get_header_checksum(void) { return header_checksum; }
+
+bool rom_has_battery(void) {
+  switch (cartridge_type) {
+    case 0x03:
+    case 0x06:
+    case 0x09:
+    case 0x0D:
+    case 0x0F:
+    case 0x10:
+    case 0x13:
+    case 0x17:
+    case 0x1B:
+    case 0x1E:
+    case 0x22:
+    case 0xFF:
+      return true;
+    default:
+      return false;
+  }
+}
 
 int rom_load(const char *filename) {
   /*

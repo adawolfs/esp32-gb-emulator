@@ -61,6 +61,6 @@ The codebase combines an existing emulator core with hardware adaptation and a l
 ## Known Boundaries
 
 - The embedded ROM approach is convenient for a fixed demo image but not suitable for general cartridge loading.
-- Cartridge RAM exists in volatile memory only; save persistence is not implemented.
+- Battery-backed cartridge RAM is persisted to `/sram.bin` on the SPIFFS partition and restored at boot. A flush is triggered immediately when the game disables cart RAM, with a 1 s debounce as a backstop.
 - The audio path is optional and still expensive on ESP32-C3.
 - The emulator targets DMG behavior, not full CGB compatibility.

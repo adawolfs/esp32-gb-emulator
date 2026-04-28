@@ -16,6 +16,25 @@ Este directorio es un port de `esp32-gameboy` para una placa ESP32-C3 con:
 ~/.platformio/penv/bin/pio device monitor
 ```
 
+## Web UI
+
+La interfaz web vive ahora en `webui/` como una PWA Vite ligera con HTML/CSS/JS vanilla.
+
+- `npm --prefix webui install`
+- `npm --prefix webui run build`
+- `~/.platformio/penv/bin/pio run --target buildfs`
+- `~/.platformio/penv/bin/pio run --target uploadfs`
+
+Scripts auxiliares:
+
+- `scripts/build_web_ui.sh`
+- `scripts/upload_web_ui.sh`
+- `scripts/deploy_all.sh`
+
+El build de Vite se emite en `data/`, que es el directorio usado por PlatformIO
+para generar la imagen SPIFFS. La UI se dibuja con HTML/CSS y no empaqueta las
+imagenes grandes de referencia.
+
 ## Documentacion
 
 La documentacion tecnica del proyecto vive en [`docs/README.md`](docs/README.md).
@@ -142,8 +161,8 @@ mono con filtro/amplificador simple, o I2S con DAC externo si se agrega hardware
 - El framebuffer visible se dibuja centrado en 160x144 dentro de la pantalla
   redonda de 240x240.
 - Las zonas tactiles reemplazan el gamepad fisico original.
-- La SRAM de cartucho todavia no se persiste en flash; funciona durante la
-  sesion actual, pero los saves se pierden al reiniciar.
+- La SRAM de cartucho con bateria ahora se persiste en NVS y se restaura al
+  arrancar, por lo que los saves sobreviven a reinicios y apagados.
 - Este port sigue apuntando a Game Boy/DMG. Los juegos GBC-only requieren una
   ruta de video y memoria CGB adicional.
 - Activar Wi-Fi sube el uso de RAM y puede afectar el pacing del emulador si se

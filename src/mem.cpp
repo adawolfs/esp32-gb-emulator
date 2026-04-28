@@ -5,6 +5,8 @@
 
 #include "mem.h"
 
+#include <FS.h>
+#include <SPIFFS.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -29,6 +31,158 @@ static unsigned int current_rom_bank = 1;
 static int DMA_pending = 0;
 static unsigned char joypad_select = 0x30;
 static uint32_t bank_switches = 0;
+static bool cart_ram_dirty = false;
+static bool cart_ram_flush_requested = false;
+static uint32_t last_cart_ram_write_ms = 0;
+
+namespace {
+
+constexpr const char *kSavePath = "/sram.bin";
+constexpr const char *kSaveTempPath = "/sram.tmp";
+constexpr uint32_t kSaveMagic = 0x53415645u;
+
+struct SaveMetadata {
+  uint32_t magic;
+  uint32_t ram_size;
+  uint32_t rom_bank_count;
+  uint8_t cartridge_type;
+  uint8_t version;
+  uint8_t header_checksum;
+  char title[17];
+};
+
+bool spiffs_ready = false;
+
+bool ensure_spiffs_mounted() {
+  if (spiffs_ready) return true;
+  if (SPIFFS.begin(false) || SPIFFS.begin(true)) {
+    spiffs_ready = true;
+    return true;
+  }
+  return false;
+}
+
+size_t cart_ram_size_bytes() { return cart_ram_bank_count * 0x2000u; }
+
+bool has_persistent_cart_ram() {
+  return cart_ram && cart_ram_bank_count > 0 && rom_has_battery();
+}
+
+SaveMetadata build_save_metadata() {
+  SaveMetadata metadata = {};
+  metadata.magic = kSaveMagic;
+  metadata.ram_size = cart_ram_size_bytes();
+  metadata.rom_bank_count = rom_get_bank_count();
+  metadata.cartridge_type = rom_get_type();
+  metadata.version = rom_get_version();
+  metadata.header_checksum = rom_get_header_checksum();
+  strncpy(metadata.title, rom_get_title(), sizeof(metadata.title) - 1);
+  return metadata;
+}
+
+bool save_metadata_matches(const SaveMetadata &metadata) {
+  const SaveMetadata current = build_save_metadata();
+  return metadata.magic == current.magic &&
+         metadata.ram_size == current.ram_size &&
+         metadata.rom_bank_count == current.rom_bank_count &&
+         metadata.cartridge_type == current.cartridge_type &&
+         metadata.version == current.version &&
+         metadata.header_checksum == current.header_checksum &&
+         strncmp(metadata.title, current.title, sizeof(metadata.title)) == 0;
+}
+
+void load_persistent_cart_ram() {
+  if (!has_persistent_cart_ram()) return;
+  if (!ensure_spiffs_mounted()) {
+    printf("SRAM load skipped: SPIFFS not mounted\n");
+    return;
+  }
+  if (!SPIFFS.exists(kSavePath)) return;
+
+  File file = SPIFFS.open(kSavePath, FILE_READ);
+  if (!file) return;
+
+  const size_t expected_ram = cart_ram_size_bytes();
+  const size_t expected_total = sizeof(SaveMetadata) + expected_ram;
+  if (file.size() != expected_total) {
+    file.close();
+    printf("SRAM file size mismatch (%u vs %u); ignoring\n",
+           static_cast<unsigned int>(file.size()),
+           static_cast<unsigned int>(expected_total));
+    return;
+  }
+
+  SaveMetadata metadata = {};
+  if (file.read(reinterpret_cast<uint8_t *>(&metadata), sizeof(metadata)) !=
+      sizeof(metadata)) {
+    file.close();
+    return;
+  }
+  if (!save_metadata_matches(metadata)) {
+    file.close();
+    printf("SRAM metadata mismatch for %s; ignoring\n", metadata.title);
+    return;
+  }
+
+  const size_t loaded = file.read(cart_ram, expected_ram);
+  file.close();
+
+  if (loaded == expected_ram) {
+    printf("Loaded persistent SRAM (%u bytes)\n",
+           static_cast<unsigned int>(loaded));
+  }
+}
+
+bool save_persistent_cart_ram() {
+  if (!has_persistent_cart_ram()) return false;
+  if (!ensure_spiffs_mounted()) {
+    printf("SRAM save failed: SPIFFS not mounted\n");
+    return false;
+  }
+
+  const SaveMetadata metadata = build_save_metadata();
+  const size_t expected_ram = cart_ram_size_bytes();
+
+  if (SPIFFS.exists(kSaveTempPath)) SPIFFS.remove(kSaveTempPath);
+
+  File file = SPIFFS.open(kSaveTempPath, FILE_WRITE);
+  if (!file) {
+    printf("SRAM save failed: cannot open temp file\n");
+    return false;
+  }
+
+  const size_t meta_written =
+      file.write(reinterpret_cast<const uint8_t *>(&metadata), sizeof(metadata));
+  const size_t data_written = file.write(cart_ram, expected_ram);
+  file.close();
+
+  if (meta_written != sizeof(metadata) || data_written != expected_ram) {
+    SPIFFS.remove(kSaveTempPath);
+    printf("SRAM save failed: short write (%u/%u + %u/%u)\n",
+           static_cast<unsigned int>(meta_written),
+           static_cast<unsigned int>(sizeof(metadata)),
+           static_cast<unsigned int>(data_written),
+           static_cast<unsigned int>(expected_ram));
+    return false;
+  }
+
+  if (SPIFFS.exists(kSavePath)) SPIFFS.remove(kSavePath);
+  if (!SPIFFS.rename(kSaveTempPath, kSavePath)) {
+    SPIFFS.remove(kSaveTempPath);
+    printf("SRAM save failed: rename failed\n");
+    return false;
+  }
+
+  printf("Saved persistent SRAM (%u bytes)\n",
+         static_cast<unsigned int>(expected_ram));
+  return true;
+}
+
+}  // namespace
+
+void mem_request_save_flush(void) {
+  if (cart_ram_dirty) cart_ram_flush_requested = true;
+}
 
 static void release_memory_buffers() {
   free(mem);
@@ -77,7 +231,14 @@ static unsigned char cart_ram_read(unsigned short i) {
 static void cart_ram_write(unsigned short d, unsigned char i) {
   if (!has_cart_ram()) return;
   if (rom_get_mapper() != NROM && !MBC_is_ram_enabled()) return;
-  cart_ram[active_cart_ram_bank() * 0x2000 + (d - 0xA000)] = i;
+  const size_t offset = active_cart_ram_bank() * 0x2000u + (d - 0xA000);
+  if (cart_ram[offset] == i) return;
+
+  cart_ram[offset] = i;
+  if (has_persistent_cart_ram()) {
+    cart_ram_dirty = true;
+    last_cart_ram_write_ms = millis();
+  }
 }
 
 unsigned char mem_get_byte(unsigned short i) {
@@ -157,6 +318,8 @@ unsigned short mem_get_word(unsigned short i) {
 void mem_write_byte(unsigned short d, unsigned char i) {
   unsigned int filtered = 0;
 
+  const bool ram_was_enabled = MBC_is_ram_enabled();
+
   switch (rom_get_mapper()) {
     case NROM:
       if (d < 0x8000) filtered = 1;
@@ -171,6 +334,10 @@ void mem_write_byte(unsigned short d, unsigned char i) {
     case MBC5:
       filtered = MBC5_write_byte(d, i);
       break;
+  }
+
+  if (ram_was_enabled && !MBC_is_ram_enabled() && cart_ram_dirty) {
+    cart_ram_flush_requested = true;
   }
 
   if (filtered) return;
@@ -279,6 +446,9 @@ bool gameboy_mem_init(void) {
   current_rom_bank = 1;
   joypad_select = 0x30;
   bank_switches = 0;
+  cart_ram_dirty = false;
+  cart_ram_flush_requested = false;
+  last_cart_ram_write_ms = 0;
   MBC_reset();
 #if GB_ENABLE_AUDIO
   apu_init();
@@ -305,7 +475,25 @@ bool gameboy_mem_init(void) {
   mem[0xFF47] = 0xFC;
   mem[0xFF48] = 0xFF;
   mem[0xFF49] = 0xFF;
+  load_persistent_cart_ram();
   return true;
+}
+
+void mem_persist(uint32_t now_ms) {
+  if (!cart_ram_dirty || !has_persistent_cart_ram()) return;
+
+  const bool debounce_elapsed =
+      now_ms >= last_cart_ram_write_ms &&
+      now_ms - last_cart_ram_write_ms >= board::SAVE_FLUSH_DEBOUNCE_MS;
+
+  if (!cart_ram_flush_requested && !debounce_elapsed) return;
+
+  if (save_persistent_cart_ram()) {
+    cart_ram_dirty = false;
+  } else {
+    last_cart_ram_write_ms = now_ms;
+  }
+  cart_ram_flush_requested = false;
 }
 
 #endif  // INTER_MODULE_OPT

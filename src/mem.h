@@ -10,6 +10,8 @@ extern "C" {
 
 #include "rom.h"
 bool gameboy_mem_init(void);
+void mem_persist(uint32_t now_ms);
+void mem_request_save_flush(void);
 unsigned char mem_get_byte(unsigned short);
 unsigned short mem_get_word(unsigned short);
 void mem_write_byte(unsigned short, unsigned char);
