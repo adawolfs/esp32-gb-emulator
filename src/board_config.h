@@ -30,6 +30,9 @@ static constexpr int SCREEN_Y_OFFSET = (SCREEN_HEIGHT - GAMEBOY_HEIGHT) / 2;
 static constexpr uint32_t TFT_WRITE_HZ = 40000000;
 static constexpr uint32_t TARGET_FPS = 60;
 static constexpr uint32_t FRAME_US = 1000000u / TARGET_FPS;
+static constexpr uint32_t WEB_PORTAL_IDLE_SERVICE_INTERVAL_MS = 50;
+static constexpr uint32_t WEB_INPUT_TIMEOUT_MS = 1500;
+static constexpr uint32_t WEB_MIN_PRESS_MS = 180;
 
 static constexpr const char *WEB_AP_SSID = "GameBoy-Link";
 static constexpr const char *WEB_AP_PASSWORD = "gameboy123";
@@ -38,6 +41,9 @@ static constexpr uint16_t WEB_SOCKET_PORT = 81;
 static constexpr uint16_t WEB_STREAM_INTERVAL_MS = 100;
 static constexpr bool AUDIO_ENABLED = GB_ENABLE_AUDIO != 0;
 static constexpr bool WEB_AUDIO_ENABLED = AUDIO_ENABLED;
+static constexpr bool DEBUG_TOUCH_INPUT = false;
+static constexpr bool DEBUG_WEB_INPUT = false;
+static constexpr bool DEBUG_INTERRUPTS = false;
 
 static constexpr uint16_t DMG_PALETTE[4] = {
     0xFFFF,

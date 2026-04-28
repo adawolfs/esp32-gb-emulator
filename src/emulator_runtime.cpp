@@ -17,17 +17,41 @@
 #include "apu.h"
 #endif
 
-bool emulator_init(void) {
-  sdl_init();
-  display_show_status("Starting WiFi", board::WEB_AP_SSID);
+namespace {
 
+uint32_t last_web_service_ms = 0;
+
+WebPortalConfig make_portal_config() {
   WebPortalConfig portal_config;
   portal_config.ap_ssid = board::WEB_AP_SSID;
   portal_config.ap_password = board::WEB_AP_PASSWORD;
   portal_config.http_port = board::WEB_HTTP_PORT;
   portal_config.websocket_port = board::WEB_SOCKET_PORT;
   portal_config.stream_interval_ms = board::WEB_STREAM_INTERVAL_MS;
-  web_portal_begin(portal_config);
+  return portal_config;
+}
+
+void service_web_portal(uint32_t now_ms, const uint8_t *framebuffer) {
+  const bool has_clients = web_portal_client_count() > 0;
+  if (last_web_service_ms != 0 && !has_clients &&
+      now_ms - last_web_service_ms < board::WEB_PORTAL_IDLE_SERVICE_INTERVAL_MS) {
+    return;
+  }
+
+  web_portal_loop(now_ms, framebuffer);
+  last_web_service_ms = now_ms;
+}
+
+}  // namespace
+
+bool emulator_init(void) {
+  sdl_init();
+  display_show_status("Starting WiFi", board::WEB_AP_SSID);
+
+  if (!web_portal_begin(make_portal_config())) {
+    display_show_status("WiFi error", "AP start failed");
+    return false;
+  }
 
   display_show_status("Loading ROM", web_portal_ip());
 
@@ -36,16 +60,17 @@ bool emulator_init(void) {
     return false;
   }
 
-  gameboy_mem_init();
+  if (!gameboy_mem_init()) {
+    display_show_status("Memory error", "Allocation failed");
+    return false;
+  }
   cpu_init();
   display_show_status("GB ready", "Starting");
   return true;
 }
 
 void emulator_run_frame(void) {
-  const uint32_t frame_start = micros();
-  uint32_t last_web_service_ms = millis();
-  web_portal_loop(millis(), sdl_get_framebuffer());
+  const uint32_t frame_start_us = micros();
 
   bool screen_updated = false;
 
@@ -61,18 +86,12 @@ void emulator_run_frame(void) {
 #if GB_ENABLE_AUDIO
     apu_cycle(cycles);
 #endif
-
-    // const uint32_t now_ms = millis();
-    // if (now_ms - last_web_service_ms >= 4) {
-    //   web_portal_loop(now_ms, nullptr);
-    //   last_web_service_ms = now_ms;
-    // }
   }
 
   sdl_update();
-  web_portal_loop(millis(), sdl_get_framebuffer());
+  service_web_portal(millis(), sdl_get_framebuffer());
 
-  const uint32_t elapsed = micros() - frame_start;
+  const uint32_t elapsed = micros() - frame_start_us;
   if (elapsed < board::FRAME_US) {
     delayMicroseconds(board::FRAME_US - elapsed);
   }

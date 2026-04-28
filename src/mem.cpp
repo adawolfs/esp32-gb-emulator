@@ -30,6 +30,13 @@ static int DMA_pending = 0;
 static unsigned char joypad_select = 0x30;
 static uint32_t bank_switches = 0;
 
+static void release_memory_buffers() {
+  free(mem);
+  free(cart_ram);
+  mem = nullptr;
+  cart_ram = nullptr;
+}
+
 uint32_t mem_get_bank_switches() { return bank_switches; }
 
 void mem_bank_switch(unsigned int n) {
@@ -253,14 +260,21 @@ void mem_write_word(unsigned short d, unsigned short i) {
   mem[d + 1] = i >> 8;
 }
 
-void gameboy_mem_init(void) {
+bool gameboy_mem_init(void) {
   const unsigned char *bytes = rom_getbytes();
 
+  release_memory_buffers();
   mem = (unsigned char *)calloc(1, 0x10000);
+  if (!mem) return false;
+
   cart_ram_bank_count = rom_get_ram_bank_count();
   cart_ram = cart_ram_bank_count
                  ? (unsigned char *)calloc(cart_ram_bank_count, 0x2000)
                  : nullptr;
+  if (cart_ram_bank_count && !cart_ram) {
+    release_memory_buffers();
+    return false;
+  }
   switchable_rom = &bytes[0x4000];
   current_rom_bank = 1;
   joypad_select = 0x30;
@@ -291,6 +305,7 @@ void gameboy_mem_init(void) {
   mem[0xFF47] = 0xFC;
   mem[0xFF48] = 0xFF;
   mem[0xFF49] = 0xFF;
+  return true;
 }
 
 #endif  // INTER_MODULE_OPT

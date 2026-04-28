@@ -5,6 +5,7 @@
 
 #include "interrupt.h"
 
+#include "board_config.h"
 #include "cpu.h"
 
 static int enabled;
@@ -56,6 +57,9 @@ int interrupt_flush(void) {
     cpu_interrupt(0x58);
   } else if (joypad && !joypad_masked) {
     joypad = 0;
+    if (board::DEBUG_INTERRUPTS) {
+      printf("Requesting joypad interrupt\n");
+    }
     cpu_interrupt(0x60);
   }
 

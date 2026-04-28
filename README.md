@@ -16,6 +16,10 @@ Este directorio es un port de `esp32-gameboy` para una placa ESP32-C3 con:
 ~/.platformio/penv/bin/pio device monitor
 ```
 
+## Documentacion
+
+La documentacion tecnica del proyecto vive en [`docs/README.md`](docs/README.md).
+
 ## Arquitectura
 
 | Archivo | Responsabilidad |
